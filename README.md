@@ -2,17 +2,16 @@
 
 > Hands-on demonstration of securing software artifacts with RSTUF
 
-## 🎯 What This Demonstrates
+## What This Demonstrates
 
-- ✅ Deploy RSTUF locally
-- ✅ Build a Python package
-- ✅ Register with RSTUF
-- ✅ Verify with TUF client
-- ✅ Detect tampering
+- Deploy RSTUF locally
+- Build a Python package
+- Register with RSTUF
+- Verify with TUF client
+- Detect tampering
 
-**Time**: 10-15 minutes | **Created for**: LFX Mentorship 2026
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # 1. Setup RSTUF (one-time)
@@ -84,6 +83,4 @@ MIT License
 
 ---
 
-**New here?** → [GETTING-STARTED.md](./GETTING-STARTED.md)
-
-**Ready to demo?** → [DEMO-GUIDE.md](./DEMO-GUIDE.md)
+**DOC** → [GETTING-STARTED.md](./GETTING-STARTED.md)
