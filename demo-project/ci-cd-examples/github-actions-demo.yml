@@ -1,0 +1,141 @@
+name: RSTUF Demo - Build and Secure Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-and-register:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel
+      
+      - name: Build package
+        run: |
+          cd demo-project/sample-artifacts/myapp
+          python -m build
+          
+      - name: Calculate artifact metadata
+        id: metadata
+        run: |
+          cd demo-project/sample-artifacts/myapp
+          ARTIFACT=$(ls dist/*.whl | head -n 1)
+          HASH=$(sha256sum $ARTIFACT | awk '{print $1}')
+          SIZE=$(stat -c%s "$ARTIFACT")
+          FILENAME=$(basename $ARTIFACT)
+          
+          echo "artifact=$ARTIFACT" >> $GITHUB_OUTPUT
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+          echo "size=$SIZE" >> $GITHUB_OUTPUT
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+          
+          echo "📦 Package built:"
+          echo "  File: $FILENAME"
+          echo "  Size: $SIZE bytes"
+          echo "  SHA256: $HASH"
+          
+      - name: Upload to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
+        run: |
+          pip install awscli
+          aws s3 cp ${{ steps.metadata.outputs.artifact }} \
+            s3://artifacts/releases/${{ steps.metadata.outputs.filename }}
+      
+      - name: Register with RSTUF
+        env:
+          RSTUF_API_URL: ${{ secrets.RSTUF_API_URL }}
+        run: |
+          # Create payload
+          cat > payload.json << EOF
+          {
+            "artifacts": [
+              {
+                "path": "releases/${{ steps.metadata.outputs.filename }}",
+                "info": {
+                  "length": ${{ steps.metadata.outputs.size }},
+                  "hashes": {
+                    "sha256": "${{ steps.metadata.outputs.hash }}"
+                  },
+                  "custom": {
+                    "version": "${{ github.ref_name }}",
+                    "commit": "${{ github.sha }}",
+                    "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                    "workflow_run": "${{ github.run_id }}"
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+          
+          # Submit to RSTUF
+          echo "🔐 Registering with RSTUF..."
+          RESPONSE=$(curl -X POST ${RSTUF_API_URL}/api/v1/artifacts \
+            -H "Content-Type: application/json" \
+            -d @payload.json)
+          
+          echo "$RESPONSE" | jq '.'
+          
+          # Extract task ID
+          TASK_ID=$(echo $RESPONSE | jq -r '.data.task_id')
+          echo "Task ID: $TASK_ID"
+          
+          # Wait for completion
+          for i in {1..30}; do
+            sleep 2
+            STATUS=$(curl -s "${RSTUF_API_URL}/api/v1/task?task_id=${TASK_ID}" | jq -r '.data.state')
+            echo "Status: $STATUS"
+            
+            if [ "$STATUS" = "SUCCESS" ]; then
+              echo "✅ Artifact registered successfully!"
+              exit 0
+            elif [ "$STATUS" = "FAILURE" ]; then
+              echo "❌ Registration failed!"
+              curl -s "${RSTUF_API_URL}/api/v1/task?task_id=${TASK_ID}" | jq '.data.result'
+              exit 1
+            fi
+          done
+          
+          echo "⏱️ Timeout waiting for registration"
+          exit 1
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ steps.metadata.outputs.artifact }}
+          body: |
+            ## 🔐 Secure Release
+            
+            This release is secured with RSTUF/TUF metadata.
+            
+            **Artifact**: ${{ steps.metadata.outputs.filename }}
+            **SHA256**: ${{ steps.metadata.outputs.hash }}
+            **Size**: ${{ steps.metadata.outputs.size }} bytes
+            
+            ### Verification
+            
+            Download securely using a TUF client to ensure integrity.
+            
+            ```bash
+            # Verify the artifact
+            python verify-download.py releases/${{ steps.metadata.outputs.filename }}
+            ```

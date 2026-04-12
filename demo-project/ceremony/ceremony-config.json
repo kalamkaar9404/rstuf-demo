@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "root": {
+      "expiration": 365,
+      "threshold": 1,
+      "keys": 1
+    },
+    "targets": {
+      "expiration": 365
+    },
+    "snapshot": {
+      "expiration": 1
+    },
+    "timestamp": {
+      "expiration": 1
+    },
+    "bins": {
+      "number_of_delegated_bins": 256
+    }
+  }
+}
